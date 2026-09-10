@@ -1,0 +1,6 @@
+{
+  "name": "Truck Simulator 3D",
+  "description": "3D Truck Driving Simulation with Adaptive Controls",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
