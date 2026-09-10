@@ -75,6 +75,7 @@ export function Truck() {
     wiperl?: THREE.Object3D | null;
     gas?: THREE.Object3D | null;
     trailer?: THREE.Object3D | null;
+    gear?: THREE.Object3D | null;
     truckRoot?: THREE.Object3D | null;
   }>({});
 
@@ -104,6 +105,7 @@ export function Truck() {
       'wiperl',
       'gas',
       'trailer',
+      'gear',
       'truck',
     ];
 
@@ -111,7 +113,15 @@ export function Truck() {
     const resolvedBones: Record<string, THREE.Object3D | null> = {};
 
     targetNames.forEach((targetName) => {
-      const master = findMasterBone(scene, targetName);
+      let master = findMasterBone(scene, targetName);
+      // Fallback alias sesuai struktur GLTF Blockbench Peterbilt 389
+      if (!master && targetName === 'trailer') {
+        master = findMasterBone(scene, 'locktrailer');
+      }
+      if (!master && targetName === 'gear') {
+        master = findMasterBone(scene, 'gearmain') || findMasterBone(scene, 'gear');
+      }
+
       resolvedBones[targetName] = master;
       discoveredBones[targetName] = {
         name: targetName,
@@ -135,6 +145,7 @@ export function Truck() {
       wiperl: resolvedBones['wiperl'],
       gas: resolvedBones['gas'],
       trailer: resolvedBones['trailer'],
+      gear: resolvedBones['gear'],
       truckRoot: resolvedBones['truck'],
     };
 
@@ -243,17 +254,20 @@ export function Truck() {
     }
     currentSteerDegRef.current = curSteer;
 
+    // Nilai variable.steering di Blockbench:
+    // Belok Kiri (curSteer < 0) -> variable.steering > 0 (+30)
+    // Belok Kanan (curSteer > 0) -> variable.steering < 0 (-30)
+    const varSteering = -curSteer;
+
     // 6. Fisika Belok Truk (Yaw Heading) Saat Bergerak
     // Di Three.js: Truk menghadap ke sumbu -Z.
-    // Belok Kanan (+curSteer) harus memutar heading searah jarum jam (mengurangi radian heading).
-    // Belok Kiri (-curSteer) harus memutar heading berlawanan jarum jam (menambah radian heading).
+    // Belok Kiri (varSteering > 0): heading bertambah (memutar arah ke -X/kiri)
+    // Belok Kanan (varSteering < 0): heading berkurang (memutar arah ke +X/kanan)
     if (Math.abs(v) > 0.05) {
       const turnRateMultiplier = Math.min(1.0, Math.abs(v) / 4.0);
-      const turnSpeed = (curSteer / 30) * 1.35 * turnRateMultiplier * dt;
-      // Jika maju: curSteer > 0 (kanan) -> heading berkurang (belok kanan).
-      // Jika mundur: arah belok berkebalikan otomatis karena tanda kecepatan v
+      const turnSpeed = (varSteering / 30) * 1.35 * turnRateMultiplier * dt;
       const dirSign = v >= 0 ? 1 : -1;
-      headingRef.current -= turnSpeed * dirSign;
+      headingRef.current += turnSpeed * dirSign;
     }
 
     // 7. Fisika Translasi Posisi Truk di Dunia 3D
@@ -273,67 +287,78 @@ export function Truck() {
     }
 
     // 8. Rotasi Roda Sesuai Kecepatan & Diameter Ban
-    // Ban berputar maju: saat maju, sudut X berkurang (rotasi rolling ke depan)
+    // Ban berputar maju: saat maju, sudut rolling X berkurang (negatif agar berputar maju ke -Z)
     const wheelRadius = 0.48; // meter
     wheelRollAngleRef.current -= distanceStep / wheelRadius;
     const wheelRoll = wheelRollAngleRef.current;
 
-    // Sudut Belok Roda Depan:
-    // Belok Kiri (curSteer < 0): Roda harus mengarah ke kiri (-X) -> Rotasi Y positif
-    // Belok Kanan (curSteer > 0): Roda harus mengarah ke kanan (+X) -> Rotasi Y negatif
-    // Rumus: - (curSteer * 1.15) * DEG_TO_RAD
-    const frontWheelSteerAngle = -curSteer * 1.15 * DEG_TO_RAD;
+    // =========================================================================
+    // FORMULA ANIMASI BLOCKBENCH (animation.truck.peterbilt389)
+    // =========================================================================
 
-    // Setir Kemudi Kabin:
-    // Belok Kiri: Setir berputar ke kiri (- curSteer * 2.5) -> Positif rotasi Y
-    // Belok Kanan: Setir berputar ke kanan -> Negatif rotasi Y
-    const cabinSteerWheelAngle = -curSteer * 2.5 * DEG_TO_RAD;
+    // 1. Roda Depan (bandep1 & bandep2):
+    // "Math.clamp(variable.steering * 1.2, -35, 35)"
+    // Menggunakan rotasi Euler order 'YXZ' agar rotasi kemudi (Y) dan putaran ban (X)
+    // tidak saling mempengaruhi (mencegah roda terbalik/miring tidak wajar).
+    const frontWheelYawDeg = Math.max(-35, Math.min(35, varSteering * 1.2));
+    const frontWheelYawRad = frontWheelYawDeg * DEG_TO_RAD;
+
+    // 2. Setir Kemudi Kabin (steer):
+    // "Math.clamp(variable.steering * 2.5, -540, 540)"
+    const steerYawDeg = Math.max(-540, Math.min(540, varSteering * 2.5));
+    const steerYawRad = steerYawDeg * DEG_TO_RAD;
+
+    // 3. Gandengan Trailer (trailer / locktrailer):
+    // "Math.clamp(variable.steering * -0.5, -40, 40)"
+    const trailerYawDeg = Math.max(-40, Math.min(40, varSteering * -0.5));
+    const trailerYawRad = trailerYawDeg * DEG_TO_RAD;
 
     const bones = bonesRef.current;
 
-    // =========================================================================
-    // APLIKASIKAN KE HIERARKI BONE BLOCKBENCH MODEL PETERBILT 389
-    // =========================================================================
-
-    // Roda Depan 1 (Kanan) & Roda Depan 2 (Kiri)
+    // Roda Depan 1 & Roda Depan 2 (Set rotation order 'YXZ' untuk stabilitas gimbal)
     if (bones.bandep1) {
-      bones.bandep1.rotation.set(wheelRoll, frontWheelSteerAngle, 0);
+      bones.bandep1.rotation.order = 'YXZ';
+      bones.bandep1.rotation.set(wheelRoll, frontWheelYawRad, 0, 'YXZ');
     }
     if (bones.bandep2) {
-      bones.bandep2.rotation.set(wheelRoll, frontWheelSteerAngle, 0);
+      bones.bandep2.rotation.order = 'YXZ';
+      bones.bandep2.rotation.set(wheelRoll, frontWheelYawRad, 0, 'YXZ');
     }
 
-    // Roda Belakang (Ban Belakang 1R, 2R, 1L, 2L)
+    // Roda Belakang (Ban Belakang 1R, 2R, 1L, 2L): rolling X
     if (bones.banb1R) bones.banb1R.rotation.set(wheelRoll, 0, 0);
     if (bones.banb2R) bones.banb2R.rotation.set(wheelRoll, 0, 0);
     if (bones.banb1L) bones.banb1L.rotation.set(wheelRoll, 0, 0);
     if (bones.banb2L) bones.banb2L.rotation.set(wheelRoll, 0, 0);
 
-    // Setir Kemudi di Dalam Kabin
+    // Setir Kemudi di Dalam Kabin (steer)
     if (bones.steer) {
-      bones.steer.rotation.set(0, cabinSteerWheelAngle, 0);
+      bones.steer.rotation.set(0, steerYawRad, 0);
     }
 
-    // Trailer (jika ada pada model, sudut trailer merespons kemudi)
+    // Trailer / Locktrailer (articulation)
     if (bones.trailer) {
-      const trailerAngle = curSteer * 0.45 * DEG_TO_RAD;
-      bones.trailer.rotation.set(0, trailerAngle, 0);
+      bones.trailer.rotation.set(0, trailerYawRad, 0);
     }
 
-    // Pedal Gas (Turun saat menginjak gas maju)
+    // Gear / Transmisi Rotasi: "query.modified_distance_moved * 200"
+    if (bones.gear) {
+      bones.gear.rotation.set(0, 0, totalDistanceRef.current * 200 * DEG_TO_RAD);
+    }
+
+    // Pedal Gas (gas): position [0, -1, 0] di animasi, kita skalakan ke pergerakan pedal
     if (bones.gas) {
       const gasDepressed = effThrottle > 0 ? -0.06 : 0;
       bones.gas.position.set(0, gasDepressed, 0);
     }
 
-    // Animasi Pintu Peterbilt 389
+    // Animasi Pintu Peterbilt 389:
+    // door1: -45 deg, door2: +45 deg
     if (bones.door1) {
-      // Pintu 1 (Kanan): Terbuka keluar sampai -45 derajat
       const door1Angle = -45 * door1Progress * DEG_TO_RAD;
       bones.door1.rotation.set(0, door1Angle, 0);
     }
     if (bones.door2) {
-      // Pintu 2 (Kiri): Terbuka keluar sampai +45 derajat
       const door2Angle = 45 * door2Progress * DEG_TO_RAD;
       bones.door2.rotation.set(0, door2Angle, 0);
     }
@@ -345,13 +370,20 @@ export function Truck() {
       if (bones.wiperl) bones.wiperl.rotation.set(0, 0, wiperAngle);
     }
 
-    // Getaran Suspensi Mesin Diesel Truk
+    // Animasi Slope & Getaran Suspensi Truk:
+    // truck: rotation ["variable.slope * -30", 0, "variable.roll * 1.3"]
     if (bones.truckRoot) {
       const speedVibe = Math.min(1.5, Math.abs(v) / 5.0);
       const idleShakeY = Math.sin(state.clock.elapsedTime * 28) * (0.002 + speedVibe * 0.003);
       const idleRollZ = Math.sin(state.clock.elapsedTime * 18) * (0.001 + speedVibe * 0.0015);
+
+      // Kemiringan badan truk saat belok (roll) dan saat akselerasi (pitch)
+      const dynamicRoll = (varSteering / 30) * Math.min(1.0, Math.abs(v) / 6.0) * 1.3 * DEG_TO_RAD;
+      const dynamicPitch = effThrottle > 0 ? -0.015 : effThrottle < 0 ? 0.012 : 0;
+
       bones.truckRoot.position.y = 0.125 + idleShakeY;
-      bones.truckRoot.rotation.z = idleRollZ;
+      bones.truckRoot.rotation.x = dynamicPitch;
+      bones.truckRoot.rotation.z = idleRollZ + dynamicRoll;
     }
 
     // 9. Sinkronisasi Telemetry ke UI Context (Setiap 6 Frame agar UI tetap ringan)
