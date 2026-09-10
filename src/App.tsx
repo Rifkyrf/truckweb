@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { Html } from '@react-three/drei';
+import * as THREE from 'three';
 import { Truck } from './components/Truck';
 import { Environment } from './components/Environment';
 import { CameraController } from './components/CameraController';
@@ -13,8 +14,8 @@ function CanvasLoader() {
     <Html center>
       <div className="flex flex-col items-center justify-center p-6 rounded-2xl bg-slate-900/90 border border-slate-800 backdrop-blur-md shadow-2xl text-white">
         <Loader2 className="w-8 h-8 text-amber-400 animate-spin mb-3" />
-        <p className="text-sm font-semibold tracking-wide">Memuat Model Peterbilt 389...</p>
-        <p className="text-xs text-slate-400 mt-1">Mengurai hierarki bone Blockbench GLTF</p>
+        <p className="text-sm font-semibold tracking-wide">Memuat Truk Peterbilt 389...</p>
+        <p className="text-xs text-slate-400 mt-1">Menyiapkan simulator jalan tak hingga...</p>
       </div>
     </Html>
   );
@@ -24,10 +25,16 @@ export default function App() {
   return (
     <TruckProvider>
       <div className="w-full h-screen overflow-hidden relative bg-slate-950">
-        {/* 3D WebGL Canvas */}
+        {/* 3D WebGL Canvas dengan Optimasi Tinggi untuk Mobile & Desktop */}
         <Canvas
-          shadows
-          camera={{ position: [8, 4.5, 11], fov: 42 }}
+          shadows={{ type: THREE.PCFSoftShadowMap }}
+          dpr={[1, 1.5]}
+          gl={{
+            powerPreference: 'high-performance',
+            antialias: true,
+            stencil: false,
+          }}
+          camera={{ position: [8, 4.5, 11], fov: 42, near: 0.5, far: 450 }}
           className="w-full h-full"
         >
           <Suspense fallback={<CanvasLoader />}>
@@ -37,10 +44,9 @@ export default function App() {
           </Suspense>
         </Canvas>
 
-        {/* Floating Controls & Live Debug Log Console */}
+        {/* Clean Responsive Driving Controls */}
         <Controls />
       </div>
     </TruckProvider>
   );
 }
-

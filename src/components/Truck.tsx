@@ -2,13 +2,11 @@ import React, { useEffect, useRef } from 'react';
 import { useGLTF } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
-import { useTruck, BoneStatus } from '../context/TruckContext';
+import { useTruck } from '../context/TruckContext';
 
 /**
  * Helper khusus untuk model hasil export Blockbench ke GLTF/GLB:
- * Blockbench sering menamai banyak mesh anak dengan nama yang sama persis
- * seperti bone induknya. Fungsi ini secara cerdas menemukan Bone Master Induk
- * (yaitu objek Group yang memiliki anak mesh, bukan sekadar potongan mesh kubus tunggal).
+ * Menemukan Bone Master Induk (objek Group yang menaungi mesh anak).
  */
 function findMasterBone(root: THREE.Object3D, name: string): THREE.Object3D | null {
   const matches: THREE.Object3D[] = [];
@@ -26,12 +24,10 @@ function findMasterBone(root: THREE.Object3D, name: string): THREE.Object3D | nu
     (m) => (!('isMesh' in m) || !(m as any).isMesh) && m.children.length > 0
   );
   if (nonMeshParents.length > 0) {
-    // Pilih yang memiliki jumlah anak paling banyak (bone container utama)
     nonMeshParents.sort((a, b) => b.children.length - a.children.length);
     return nonMeshParents[0];
   }
 
-  // Fallback: pilih node dengan anak terbanyak
   matches.sort((a, b) => b.children.length - a.children.length);
   return matches[0];
 }
@@ -52,18 +48,11 @@ export function Truck() {
     setTruckPosition,
     truckHeading,
     setTruckHeading,
-    door1Progress,
-    door2Progress,
-    wiperActive,
     autoDrive,
-    addLog,
-    registerBones,
   } = useTruck();
 
   // Cache referensi ke bone-bone utama Blockbench
   const bonesRef = useRef<{
-    door1?: THREE.Object3D | null;
-    door2?: THREE.Object3D | null;
     steer?: THREE.Object3D | null;
     bandep1?: THREE.Object3D | null;
     bandep2?: THREE.Object3D | null;
@@ -71,8 +60,6 @@ export function Truck() {
     banb2R?: THREE.Object3D | null;
     banb2L?: THREE.Object3D | null;
     banb1L?: THREE.Object3D | null;
-    wiperr?: THREE.Object3D | null;
-    wiperl?: THREE.Object3D | null;
     gas?: THREE.Object3D | null;
     trailer?: THREE.Object3D | null;
     gear?: THREE.Object3D | null;
@@ -92,8 +79,6 @@ export function Truck() {
     });
 
     const targetNames = [
-      'door1',
-      'door2',
       'steer',
       'bandep1',
       'bandep2',
@@ -101,39 +86,26 @@ export function Truck() {
       'banb2R',
       'banb2L',
       'banb1L',
-      'wiperr',
-      'wiperl',
       'gas',
       'trailer',
       'gear',
       'truck',
     ];
 
-    const discoveredBones: Record<string, BoneStatus> = {};
     const resolvedBones: Record<string, THREE.Object3D | null> = {};
 
     targetNames.forEach((targetName) => {
       let master = findMasterBone(scene, targetName);
-      // Fallback alias sesuai struktur GLTF Blockbench Peterbilt 389
       if (!master && targetName === 'trailer') {
         master = findMasterBone(scene, 'locktrailer');
       }
       if (!master && targetName === 'gear') {
         master = findMasterBone(scene, 'gearmain') || findMasterBone(scene, 'gear');
       }
-
       resolvedBones[targetName] = master;
-      discoveredBones[targetName] = {
-        name: targetName,
-        found: !!master,
-        childrenCount: master ? master.children.length : 0,
-        type: master ? master.type : 'Not Found',
-      };
     });
 
     bonesRef.current = {
-      door1: resolvedBones['door1'],
-      door2: resolvedBones['door2'],
       steer: resolvedBones['steer'],
       bandep1: resolvedBones['bandep1'],
       bandep2: resolvedBones['bandep2'],
@@ -141,16 +113,12 @@ export function Truck() {
       banb2R: resolvedBones['banb2R'],
       banb2L: resolvedBones['banb2L'],
       banb1L: resolvedBones['banb1L'],
-      wiperr: resolvedBones['wiperr'],
-      wiperl: resolvedBones['wiperl'],
       gas: resolvedBones['gas'],
       trailer: resolvedBones['trailer'],
       gear: resolvedBones['gear'],
       truckRoot: resolvedBones['truck'],
     };
-
-    registerBones(discoveredBones);
-  }, [scene, registerBones]);
+  }, [scene]);
 
   // Input keyboard WASD / Arrow Keys untuk desktop
   const keysPressed = useRef<{ [key: string]: boolean }>({});
@@ -189,7 +157,7 @@ export function Truck() {
 
   // Frame Loop Animasi Prosedural & Fisika Kemudi Peterbilt 389
   useFrame((state, delta) => {
-    const dt = Math.min(delta, 0.1); // Guard dari lonjakan delta frame
+    const dt = Math.min(delta, 0.1);
     const DEG_TO_RAD = Math.PI / 180;
     const keys = keysPressed.current;
 
@@ -204,35 +172,29 @@ export function Truck() {
     if (keys['a'] || keys['arrowleft']) effSteerDir = -1;
     if (keys['d'] || keys['arrowright']) effSteerDir = 1;
 
-    // 3. Modus Auto-Drive
+    // 3. Modus Auto-Drive Simulator
     if (autoDrive) {
       effThrottle = 0.8;
-      // Berbelok dinamis halus di jalan raya
       effSteerDir = Math.sin(state.clock.elapsedTime * 0.7) * 0.65;
     }
 
-    // 4. Kalkulasi Kecepatan Fisik (Super Responsif)
+    // 4. Kalkulasi Kecepatan Fisik
     let v = currentSpeedRef.current;
     const topForwardSpeed = cruiseSpeed > 0 ? cruiseSpeed : 16.0; // ~58 km/jam
     const topReverseSpeed = -5.5; // Mundur
 
     if (isBraking) {
-      // Pengereman cepat
       if (v > 0) v = Math.max(0, v - 24 * dt);
       else if (v < 0) v = Math.min(0, v + 24 * dt);
     } else if (effThrottle > 0) {
-      // Maju dengan akselerasi cepat & instan
       const accelRate = v < 4 ? 14 : 10;
       v = Math.min(topForwardSpeed, v + accelRate * dt);
     } else if (effThrottle < 0) {
-      // Mundur
       v = Math.max(topReverseSpeed, v - 9 * dt);
     } else if (cruiseSpeed > 0) {
-      // Cruise konstan
       if (v < cruiseSpeed) v = Math.min(cruiseSpeed, v + 8 * dt);
       else v = Math.max(cruiseSpeed, v - 6 * dt);
     } else {
-      // Friksi gelinding alami (rolling drag)
       if (v > 0) v = Math.max(0, v - 6 * dt);
       else if (v < 0) v = Math.min(0, v + 6 * dt);
     }
@@ -241,16 +203,15 @@ export function Truck() {
     // 5. Kalkulasi Derajat Kemudi Setir (-30° Kiri s/d +30° Kanan)
     let curSteer = currentSteerDegRef.current;
     if (effSteerDir < 0) {
-      // Belok KIRI (nilai negatif: mendekati -30°)
       curSteer = Math.max(-30, curSteer - 85 * dt);
     } else if (effSteerDir > 0) {
-      // Belok KANAN (nilai positif: mendekati +30°)
       curSteer = Math.min(30, curSteer + 85 * dt);
     } else {
-      // Otomatis lurus kembali saat kemudi dilepas (self-centering)
-      if (curSteer > 0.5) curSteer = Math.max(0, curSteer - 65 * dt);
-      else if (curSteer < -0.5) curSteer = Math.min(0, curSteer + 65 * dt);
-      else curSteer = 0;
+      if (curSteer > 0) {
+        curSteer = Math.max(0, curSteer - 95 * dt);
+      } else if (curSteer < 0) {
+        curSteer = Math.min(0, curSteer + 95 * dt);
+      }
     }
     currentSteerDegRef.current = curSteer;
 
@@ -260,9 +221,6 @@ export function Truck() {
     const varSteering = -curSteer;
 
     // 6. Fisika Belok Truk (Yaw Heading) Saat Bergerak
-    // Di Three.js: Truk menghadap ke sumbu -Z.
-    // Belok Kiri (varSteering > 0): heading bertambah (memutar arah ke -X/kiri)
-    // Belok Kanan (varSteering < 0): heading berkurang (memutar arah ke +X/kanan)
     if (Math.abs(v) > 0.05) {
       const turnRateMultiplier = Math.min(1.0, Math.abs(v) / 4.0);
       const turnSpeed = (varSteering / 30) * 1.35 * turnRateMultiplier * dt;
@@ -271,51 +229,37 @@ export function Truck() {
     }
 
     // 7. Fisika Translasi Posisi Truk di Dunia 3D
-    const currentHeading = headingRef.current;
-    const forwardX = -Math.sin(currentHeading);
-    const forwardZ = -Math.cos(currentHeading);
     const distanceStep = v * dt;
-
-    posRef.current.x += forwardX * distanceStep;
-    posRef.current.z += forwardZ * distanceStep;
     totalDistanceRef.current += Math.abs(distanceStep);
 
-    // Update Transformasi Root Objek Truk
+    const currentHeading = headingRef.current;
+    posRef.current.x -= Math.sin(currentHeading) * distanceStep;
+    posRef.current.z -= Math.cos(currentHeading) * distanceStep;
+
+    // Terapkan posisi dan rotasi heading truk ke grup 3D utama
     if (groupRef.current) {
-      groupRef.current.position.copy(posRef.current);
+      groupRef.current.position.set(posRef.current.x, 0, posRef.current.z);
       groupRef.current.rotation.y = currentHeading;
     }
 
     // 8. Rotasi Roda Sesuai Kecepatan & Diameter Ban
-    // Ban berputar maju: saat maju, sudut rolling X berkurang (negatif agar berputar maju ke -Z)
     const wheelRadius = 0.48; // meter
     wheelRollAngleRef.current -= distanceStep / wheelRadius;
     const wheelRoll = wheelRollAngleRef.current;
 
-    // =========================================================================
-    // FORMULA ANIMASI BLOCKBENCH (animation.truck.peterbilt389)
-    // =========================================================================
-
-    // 1. Roda Depan (bandep1 & bandep2):
-    // "Math.clamp(variable.steering * 1.2, -35, 35)"
-    // Menggunakan rotasi Euler order 'YXZ' agar rotasi kemudi (Y) dan putaran ban (X)
-    // tidak saling mempengaruhi (mencegah roda terbalik/miring tidak wajar).
+    // Formula Animasi Blockbench Peterbilt 389
     const frontWheelYawDeg = Math.max(-35, Math.min(35, varSteering * 1.2));
     const frontWheelYawRad = frontWheelYawDeg * DEG_TO_RAD;
 
-    // 2. Setir Kemudi Kabin (steer):
-    // "Math.clamp(variable.steering * 2.5, -540, 540)"
     const steerYawDeg = Math.max(-540, Math.min(540, varSteering * 2.5));
     const steerYawRad = steerYawDeg * DEG_TO_RAD;
 
-    // 3. Gandengan Trailer (trailer / locktrailer):
-    // "Math.clamp(variable.steering * -0.5, -40, 40)"
     const trailerYawDeg = Math.max(-40, Math.min(40, varSteering * -0.5));
     const trailerYawRad = trailerYawDeg * DEG_TO_RAD;
 
     const bones = bonesRef.current;
 
-    // Roda Depan 1 & Roda Depan 2 (Set rotation order 'YXZ' untuk stabilitas gimbal)
+    // Roda Depan 1 & 2 (order YXZ mencegah gimbal lock)
     if (bones.bandep1) {
       bones.bandep1.rotation.order = 'YXZ';
       bones.bandep1.rotation.set(wheelRoll, frontWheelYawRad, 0, 'YXZ');
@@ -325,59 +269,39 @@ export function Truck() {
       bones.bandep2.rotation.set(wheelRoll, frontWheelYawRad, 0, 'YXZ');
     }
 
-    // Roda Belakang (Ban Belakang 1R, 2R, 1L, 2L): rolling X
+    // Roda Belakang
     if (bones.banb1R) bones.banb1R.rotation.set(wheelRoll, 0, 0);
     if (bones.banb2R) bones.banb2R.rotation.set(wheelRoll, 0, 0);
     if (bones.banb1L) bones.banb1L.rotation.set(wheelRoll, 0, 0);
     if (bones.banb2L) bones.banb2L.rotation.set(wheelRoll, 0, 0);
 
-    // Setir Kemudi di Dalam Kabin (steer)
+    // Setir Kemudi Kabin
     if (bones.steer) {
       bones.steer.rotation.set(0, steerYawRad, 0);
     }
 
-    // Trailer / Locktrailer (articulation)
+    // Trailer
     if (bones.trailer) {
       bones.trailer.rotation.set(0, trailerYawRad, 0);
     }
 
-    // Gear / Transmisi Rotasi: "query.modified_distance_moved * 200"
+    // Gear Transmisi
     if (bones.gear) {
       bones.gear.rotation.set(0, 0, totalDistanceRef.current * 200 * DEG_TO_RAD);
     }
 
-    // Pedal Gas (gas): position [0, -1, 0] di animasi, kita skalakan ke pergerakan pedal
+    // Pedal Gas
     if (bones.gas) {
       const gasDepressed = effThrottle > 0 ? -0.06 : 0;
       bones.gas.position.set(0, gasDepressed, 0);
     }
 
-    // Animasi Pintu Peterbilt 389:
-    // door1: -45 deg, door2: +45 deg
-    if (bones.door1) {
-      const door1Angle = -45 * door1Progress * DEG_TO_RAD;
-      bones.door1.rotation.set(0, door1Angle, 0);
-    }
-    if (bones.door2) {
-      const door2Angle = 45 * door2Progress * DEG_TO_RAD;
-      bones.door2.rotation.set(0, door2Angle, 0);
-    }
-
-    // Wiper Kaca Depan
-    if (bones.wiperr || bones.wiperl) {
-      const wiperAngle = wiperActive ? Math.sin(state.clock.elapsedTime * 8) * 30 * DEG_TO_RAD : 0;
-      if (bones.wiperr) bones.wiperr.rotation.set(0, 0, wiperAngle);
-      if (bones.wiperl) bones.wiperl.rotation.set(0, 0, wiperAngle);
-    }
-
-    // Animasi Slope & Getaran Suspensi Truk:
-    // truck: rotation ["variable.slope * -30", 0, "variable.roll * 1.3"]
+    // Suspensi Dinamis & Vibrasi Mesin Diesel
     if (bones.truckRoot) {
       const speedVibe = Math.min(1.5, Math.abs(v) / 5.0);
       const idleShakeY = Math.sin(state.clock.elapsedTime * 28) * (0.002 + speedVibe * 0.003);
       const idleRollZ = Math.sin(state.clock.elapsedTime * 18) * (0.001 + speedVibe * 0.0015);
 
-      // Kemiringan badan truk saat belok (roll) dan saat akselerasi (pitch)
       const dynamicRoll = (varSteering / 30) * Math.min(1.0, Math.abs(v) / 6.0) * 1.3 * DEG_TO_RAD;
       const dynamicPitch = effThrottle > 0 ? -0.015 : effThrottle < 0 ? 0.012 : 0;
 
@@ -386,7 +310,7 @@ export function Truck() {
       bones.truckRoot.rotation.z = idleRollZ + dynamicRoll;
     }
 
-    // 9. Sinkronisasi Telemetry ke UI Context (Setiap 6 Frame agar UI tetap ringan)
+    // Sinkronisasi Telemetry ke Context
     frameCounterRef.current++;
     if (frameCounterRef.current % 6 === 0) {
       setTruckPosition([posRef.current.x, posRef.current.y, posRef.current.z]);

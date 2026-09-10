@@ -1,19 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
-
-export interface LogMessage {
-  id: string;
-  time: string;
-  type: 'info' | 'success' | 'warn' | 'action';
-  text: string;
-}
-
-export interface BoneStatus {
-  name: string;
-  found: boolean;
-  nodeIndex?: number;
-  childrenCount?: number;
-  type?: string;
-}
+import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 
 interface TruckContextType {
   // State kemudi dan gerak
@@ -41,29 +26,9 @@ interface TruckContextType {
   setTruckHeading: (v: number) => void;
   resetPosition: () => void;
 
-  // State pintu
-  door1Open: boolean;
-  door2Open: boolean;
-  door1Progress: number;     // 0 (tutup) s/d 1 (terbuka penuh -45 deg)
-  door2Progress: number;     // 0 (tutup) s/d 1 (terbuka penuh +45 deg)
-  toggleDoor1: () => void;
-  toggleDoor2: () => void;
-  setBothDoors: (open: boolean) => void;
-
-  // Aksesori & Simulator
-  wiperActive: boolean;
-  toggleWiper: () => void;
+  // Simulator Mode
   autoDrive: boolean;
   toggleAutoDrive: () => void;
-  cameraPreset: 'orbit' | 'side' | 'front' | 'cockpit';
-  setCameraPreset: (v: 'orbit' | 'side' | 'front' | 'cockpit') => void;
-
-  // Debug & Log
-  logs: LogMessage[];
-  addLog: (text: string, type?: LogMessage['type']) => void;
-  clearLogs: () => void;
-  boneStatuses: Record<string, BoneStatus>;
-  registerBones: (statuses: Record<string, BoneStatus>) => void;
 }
 
 const TruckContext = createContext<TruckContextType | null>(null);
@@ -80,34 +45,7 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
 
   const [truckPosition, setTruckPosition] = useState<[number, number, number]>([0, 0, 0]);
   const [truckHeading, setTruckHeading] = useState(0);
-
-  const [door1Open, setDoor1Open] = useState(false);
-  const [door2Open, setDoor2Open] = useState(false);
-  const [door1Progress, setDoor1Progress] = useState(0);
-  const [door2Progress, setDoor2Progress] = useState(0);
-
-  const [wiperActive, setWiperActive] = useState(false);
   const [autoDrive, setAutoDrive] = useState(false);
-  const [cameraPreset, setCameraPreset] = useState<'orbit' | 'side' | 'front' | 'cockpit'>('orbit');
-
-  const [logs, setLogs] = useState<LogMessage[]>([]);
-  const [boneStatuses, setBoneStatuses] = useState<Record<string, BoneStatus>>({});
-
-  const addLog = useCallback((text: string, type: LogMessage['type'] = 'info') => {
-    const time = new Date().toLocaleTimeString('id-ID', { hour12: false });
-    const newLog: LogMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-      time,
-      type,
-      text,
-    };
-    setLogs((prev) => [newLog, ...prev.slice(0, 49)]); // Simpan 50 log terakhir
-    console.log(`[TRUCK_DEBUG ${time}][${type.toUpperCase()}] ${text}`);
-  }, []);
-
-  const clearLogs = useCallback(() => {
-    setLogs([]);
-  }, []);
 
   const resetPosition = useCallback(() => {
     setTruckPosition([0, 0, 0]);
@@ -117,86 +55,12 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
     setCruiseSpeed(0);
     setSteering(0);
     setSteerInput(0);
-    addLog('Posisi Truk di-reset kembali ke titik awal (0, 0, 0)', 'action');
-  }, [addLog]);
-
-  const registerBones = useCallback((statuses: Record<string, BoneStatus>) => {
-    setBoneStatuses(statuses);
-    const foundCount = Object.values(statuses).filter((b) => b.found).length;
-    const totalCount = Object.keys(statuses).length;
-    addLog(`Deteksi Bone Model: ${foundCount}/${totalCount} teridentifikasi dengan tepat.`, foundCount > 0 ? 'success' : 'warn');
-  }, [addLog]);
-
-  const toggleDoor1 = useCallback(() => {
-    setDoor1Open((prev) => {
-      const next = !prev;
-      addLog(`Pintu 1 (Kanan) ${next ? 'Membuka (-45°)' : 'Menutup (0°)'}`, 'action');
-      return next;
-    });
-  }, [addLog]);
-
-  const toggleDoor2 = useCallback(() => {
-    setDoor2Open((prev) => {
-      const next = !prev;
-      addLog(`Pintu 2 (Kiri) ${next ? 'Membuka (+45°)' : 'Menutup (0°)'}`, 'action');
-      return next;
-    });
-  }, [addLog]);
-
-  const setBothDoors = useCallback((open: boolean) => {
-    setDoor1Open(open);
-    setDoor2Open(open);
-    addLog(`Kedua Pintu ${open ? 'Dibuka Penuh' : 'Ditutup Rapat'}`, 'action');
-  }, [addLog]);
-
-  const toggleWiper = useCallback(() => {
-    setWiperActive((prev) => {
-      const next = !prev;
-      addLog(`Wiper Kaca Depan: ${next ? 'AKTIF (Berayun)' : 'NON-AKTIF'}`, 'action');
-      return next;
-    });
-  }, [addLog]);
+    setAutoDrive(false);
+  }, []);
 
   const toggleAutoDrive = useCallback(() => {
-    setAutoDrive((prev) => {
-      const next = !prev;
-      addLog(`Auto-Drive Simulator: ${next ? 'DIMULAI (Otomatis jalan & belok)' : 'DIHENTIKAN'}`, 'action');
-      return next;
-    });
-  }, [addLog]);
-
-  // Animasi halus untuk door1Progress dan door2Progress
-  const door1Target = door1Open ? 1 : 0;
-  const door2Target = door2Open ? 1 : 0;
-
-  useEffect(() => {
-    let animId: number;
-    const updateDoors = () => {
-      setDoor1Progress((cur) => {
-        const diff = door1Target - cur;
-        if (Math.abs(diff) < 0.01) return door1Target;
-        return cur + diff * 0.12;
-      });
-      setDoor2Progress((cur) => {
-        const diff = door2Target - cur;
-        if (Math.abs(diff) < 0.01) return door2Target;
-        return cur + diff * 0.12;
-      });
-      animId = requestAnimationFrame(updateDoors);
-    };
-    animId = requestAnimationFrame(updateDoors);
-    return () => cancelAnimationFrame(animId);
-  }, [door1Target, door2Target]);
-
-  // Log inisialisasi awal
-  const initializedRef = useRef(false);
-  useEffect(() => {
-    if (!initializedRef.current) {
-      initializedRef.current = true;
-      addLog('Sistem Simulator Truk 3D Peterbilt 389 diinisialisasi.', 'info');
-      addLog('Menghubungkan query animasi Blockbench Minecraft & Three.js...', 'info');
-    }
-  }, [addLog]);
+    setAutoDrive((prev) => !prev);
+  }, []);
 
   return (
     <TruckContext.Provider
@@ -222,24 +86,8 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
         truckHeading,
         setTruckHeading,
         resetPosition,
-        door1Open,
-        door2Open,
-        door1Progress,
-        door2Progress,
-        toggleDoor1,
-        toggleDoor2,
-        setBothDoors,
-        wiperActive,
-        toggleWiper,
         autoDrive,
         toggleAutoDrive,
-        cameraPreset,
-        setCameraPreset,
-        logs,
-        addLog,
-        clearLogs,
-        boneStatuses,
-        registerBones,
       }}
     >
       {children}

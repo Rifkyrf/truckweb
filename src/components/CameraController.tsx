@@ -8,82 +8,27 @@ import { useTruck } from '../context/TruckContext';
 export function CameraController() {
   const { camera } = useThree();
   const controlsRef = useRef<OrbitControlsType>(null);
-  const { truckPosition, truckHeading, cameraPreset } = useTruck();
+  const { truckPosition } = useTruck();
 
-  // Smoothing position refs
-  const currentTargetRef = useRef(new THREE.Vector3(0, 1.8, 0));
-  const currentCamPosRef = useRef(new THREE.Vector3(8, 4.5, 11));
+  // Reusable Vector3 objects (mencegah memory allocation & GC stutter pada 60/120 FPS)
+  const prevTruckPos = useRef(new THREE.Vector3(...truckPosition));
+  const targetPoint = useRef(new THREE.Vector3());
+  const deltaMove = useRef(new THREE.Vector3());
 
-  useFrame((_, delta) => {
+  useFrame(() => {
     const [tx, ty, tz] = truckPosition;
-    const truckTarget = new THREE.Vector3(tx, ty + 1.6, tz);
+    targetPoint.current.set(tx, ty + 1.6, tz);
 
-    if (cameraPreset === 'orbit') {
-      // Orbit mode: controls target follows the truck smoothly
-      if (controlsRef.current) {
-        controlsRef.current.enabled = true;
-        // Geser target kontroler mengikuti truk
-        const targetOffset = truckTarget.clone().sub(controlsRef.current.target);
-        controlsRef.current.target.lerp(truckTarget, 0.15);
-        // Kamera juga bergeser bersama truk agar jarak tetap
-        camera.position.add(targetOffset.multiplyScalar(0.95));
-        controlsRef.current.update();
-      }
-    } else if (cameraPreset === 'side') {
-      // Third-person Chase Cam (di belakang truk mengikuti heading)
-      if (controlsRef.current) controlsRef.current.enabled = false;
+    if (controlsRef.current) {
+      // Hitung delta gerakan truk tanpa alokasi memori baru
+      deltaMove.current.copy(targetPoint.current).sub(prevTruckPos.current);
 
-      // Di belakang truk: arah +Z lokal truk diputar berdasarkan truckHeading
-      const forwardX = -Math.sin(truckHeading);
-      const forwardZ = -Math.cos(truckHeading);
+      // Geser target orbit dan kamera secara simultan agar sudut pandang konsisten
+      controlsRef.current.target.copy(targetPoint.current);
+      camera.position.add(deltaMove.current);
+      controlsRef.current.update();
 
-      // Posisi di belakang truk (berlawanan dari forward)
-      const chasePos = new THREE.Vector3(
-        tx - forwardX * 10,
-        ty + 3.8,
-        tz - forwardZ * 10
-      );
-
-      camera.position.lerp(chasePos, 0.12);
-      camera.lookAt(tx + forwardX * 6, ty + 1.8, tz + forwardZ * 6);
-    } else if (cameraPreset === 'front') {
-      // Cinematic Front View (melihat truk dari depan)
-      if (controlsRef.current) controlsRef.current.enabled = false;
-
-      const forwardX = -Math.sin(truckHeading);
-      const forwardZ = -Math.cos(truckHeading);
-
-      const frontPos = new THREE.Vector3(
-        tx + forwardX * 11,
-        ty + 2.4,
-        tz + forwardZ * 11
-      );
-
-      camera.position.lerp(frontPos, 0.12);
-      camera.lookAt(tx, ty + 1.8, tz);
-    } else if (cameraPreset === 'cockpit') {
-      // Driver Interior View (di dalam kabin sopir)
-      if (controlsRef.current) controlsRef.current.enabled = false;
-
-      const forwardX = -Math.sin(truckHeading);
-      const forwardZ = -Math.cos(truckHeading);
-      const rightX = Math.cos(truckHeading);
-      const rightZ = -Math.sin(truckHeading);
-
-      // Posisi duduk sopir Peterbilt di kabin kiri
-      const cockpitPos = new THREE.Vector3(
-        tx - rightX * 0.45,
-        ty + 2.3,
-        tz - rightZ * 0.45
-      );
-
-      camera.position.lerp(cockpitPos, 0.2);
-      // Melihat ke arah depan jalan
-      camera.lookAt(
-        tx + forwardX * 20 - rightX * 0.45,
-        ty + 2.0,
-        tz + forwardZ * 20 - rightZ * 0.45
-      );
+      prevTruckPos.current.copy(targetPoint.current);
     }
   });
 
@@ -91,12 +36,15 @@ export function CameraController() {
     <OrbitControls
       ref={controlsRef}
       makeDefault
-      target={[0, 1.8, 0]}
-      maxPolarAngle={Math.PI / 2 - 0.04}
-      minDistance={2.5}
-      maxDistance={45}
+      target={[truckPosition[0], truckPosition[1] + 1.6, truckPosition[2]]}
+      maxPolarAngle={Math.PI / 2 - 0.03} // Mencegah kamera tembus ke bawah aspal
+      minPolarAngle={0.1}
+      minDistance={3.5}
+      maxDistance={40}
       enableDamping
-      dampingFactor={0.06}
+      dampingFactor={0.08}
+      rotateSpeed={0.8}
+      zoomSpeed={1.0}
     />
   );
 }
