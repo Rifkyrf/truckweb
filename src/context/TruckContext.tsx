@@ -1,4 +1,13 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
+import * as THREE from 'three';
+
+export interface TruckPhysics {
+  position: THREE.Vector3;
+  heading: number;
+  speed: number;
+  steering: number;
+  resetId: number; // incremental counter for reset detection
+}
 
 interface TruckContextType {
   // State kemudi dan gerak
@@ -19,12 +28,15 @@ interface TruckContextType {
   cruiseSpeed: number;       // Kecepatan cruise konstan
   setCruiseSpeed: (v: number) => void;
 
-  // Koordinat Posisi Truk di Dunia 3D
+  // Koordinat Posisi Truk di Dunia 3D (React State untuk UI)
   truckPosition: [number, number, number];
   setTruckPosition: (v: [number, number, number]) => void;
   truckHeading: number;      // rotasi yaw truk (radian)
   setTruckHeading: (v: number) => void;
   resetPosition: () => void;
+
+  // 60/120 FPS High-Performance Mutable Ref untuk Camera & Environment (No React re-render stutter)
+  truckPhysicsRef: React.MutableRefObject<TruckPhysics>;
 
   // Simulator Mode
   autoDrive: boolean;
@@ -47,7 +59,22 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
   const [truckHeading, setTruckHeading] = useState(0);
   const [autoDrive, setAutoDrive] = useState(false);
 
+  // Mutable ref shared across useFrame loops
+  const truckPhysicsRef = useRef<TruckPhysics>({
+    position: new THREE.Vector3(0, 0, 0),
+    heading: 0,
+    speed: 0,
+    steering: 0,
+    resetId: 0,
+  });
+
   const resetPosition = useCallback(() => {
+    truckPhysicsRef.current.position.set(0, 0, 0);
+    truckPhysicsRef.current.heading = 0;
+    truckPhysicsRef.current.speed = 0;
+    truckPhysicsRef.current.steering = 0;
+    truckPhysicsRef.current.resetId += 1;
+
     setTruckPosition([0, 0, 0]);
     setTruckHeading(0);
     setSpeed(0);
@@ -86,6 +113,7 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
         truckHeading,
         setTruckHeading,
         resetPosition,
+        truckPhysicsRef,
         autoDrive,
         toggleAutoDrive,
       }}

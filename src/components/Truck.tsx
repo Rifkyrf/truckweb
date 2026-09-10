@@ -48,6 +48,7 @@ export function Truck() {
     setTruckPosition,
     truckHeading,
     setTruckHeading,
+    truckPhysicsRef,
     autoDrive,
   } = useTruck();
 
@@ -310,7 +311,13 @@ export function Truck() {
       bones.truckRoot.rotation.z = idleRollZ + dynamicRoll;
     }
 
-    // Sinkronisasi Telemetry ke Context
+    // Sinkronisasi Real-time 60/120 FPS ke Mutable Ref (Camera & Environment bebas stutter)
+    truckPhysicsRef.current.position.set(posRef.current.x, posRef.current.y, posRef.current.z);
+    truckPhysicsRef.current.heading = currentHeading;
+    truckPhysicsRef.current.speed = v;
+    truckPhysicsRef.current.steering = curSteer;
+
+    // Sinkronisasi Telemetry ke UI Context (setiap 6 frame agar React tidak boros re-render)
     frameCounterRef.current++;
     if (frameCounterRef.current % 6 === 0) {
       setTruckPosition([posRef.current.x, posRef.current.y, posRef.current.z]);

@@ -19,7 +19,7 @@ const NUM_POSTS = 40;            // 40 tiang kiri & 40 tiang kanan
 const NUM_TREES = 50;            // Pepohonan dekorasi sisi jalan (instanced)
 
 export function Environment() {
-  const { truckPosition } = useTruck();
+  const { truckPhysicsRef } = useTruck();
 
   const roadGroupRef = useRef<THREE.Group>(null);
   const terrainRef = useRef<THREE.Mesh>(null);
@@ -117,9 +117,12 @@ export function Environment() {
     }
   }, []);
 
-  // Update loop untuk Infinite Road dan Dynamic Shadow Frustum
+  // Update loop untuk Infinite Road dan Dynamic Shadow Frustum (60 FPS real-time)
   useFrame(() => {
-    const [tx, ty, tz] = truckPosition;
+    const pos = truckPhysicsRef.current.position;
+    const tx = pos.x;
+    const ty = pos.y;
+    const tz = pos.z;
 
     // A. Infinite Snap: Geser grup jalan raya setiap kelipatan STRIPE_INTERVAL (7.5m)
     // Karena jarak antar marka = 7.5m, pergeseran grup ini 100% mulus tanpa jeda atau kedipan!
