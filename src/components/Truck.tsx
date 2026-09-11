@@ -142,25 +142,31 @@ export function Truck() {
   }, []);
 
   // Simpan nilai fisika dalam ref untuk update 60 FPS tanpa jank
-  const posRef = useRef(new THREE.Vector3(truckPosition[0], truckPosition[1], truckPosition[2]));
-  const headingRef = useRef(truckHeading);
-  const currentSpeedRef = useRef(speed);
-  const currentSteerDegRef = useRef(steering);
+  const posRef = useRef(new THREE.Vector3(0, 0, 0));
+  const headingRef = useRef(0);
+  const currentSpeedRef = useRef(0);
+  const currentSteerDegRef = useRef(0);
   const wheelRollAngleRef = useRef(0);
   const totalDistanceRef = useRef(0);
   const frameCounterRef = useRef(0);
-
-  // Sync saat posisi direset dari luar
-  useEffect(() => {
-    posRef.current.set(truckPosition[0], truckPosition[1], truckPosition[2]);
-    headingRef.current = truckHeading;
-  }, [truckPosition, truckHeading]);
+  const lastResetIdRef = useRef(0);
 
   // Frame Loop Animasi Prosedural & Fisika Kemudi Peterbilt 389
   useFrame((state, delta) => {
-    const dt = Math.min(delta, 0.1);
+    const dt = Math.min(delta, 0.05);
     const DEG_TO_RAD = Math.PI / 180;
     const keys = keysPressed.current;
+
+    // Reset deteksi instan tanpa delay React
+    if (truckPhysicsRef.current.resetId !== lastResetIdRef.current) {
+      lastResetIdRef.current = truckPhysicsRef.current.resetId;
+      posRef.current.set(0, 0, 0);
+      headingRef.current = 0;
+      currentSpeedRef.current = 0;
+      currentSteerDegRef.current = 0;
+      wheelRollAngleRef.current = 0;
+      totalDistanceRef.current = 0;
+    }
 
     // 1. Tentukan Input Gas / Throttle (-1: Mundur, 0: Lepas Gas, +1: Maju)
     let effThrottle = throttleInput;
@@ -317,18 +323,16 @@ export function Truck() {
     truckPhysicsRef.current.speed = v;
     truckPhysicsRef.current.steering = curSteer;
 
-    // Sinkronisasi Telemetry ke UI Context (setiap 6 frame agar React tidak boros re-render)
+    // Sinkronisasi Telemetry ringan ke UI (hanya speed & steer, tanpa trigger re-render 3D)
     frameCounterRef.current++;
-    if (frameCounterRef.current % 6 === 0) {
-      setTruckPosition([posRef.current.x, posRef.current.y, posRef.current.z]);
-      setTruckHeading(currentHeading);
+    if (frameCounterRef.current % 8 === 0) {
       setSpeed(v);
       setSteering(curSteer);
     }
   });
 
   return (
-    <group ref={groupRef} position={[truckPosition[0], 0, truckPosition[2]]}>
+    <group ref={groupRef} position={[0, 0, 0]}>
       <primitive object={scene} />
     </group>
   );

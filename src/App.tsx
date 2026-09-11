@@ -24,7 +24,7 @@ function CanvasLoader() {
 export default function App() {
   return (
     <TruckProvider>
-      <div className="w-full h-screen overflow-hidden relative bg-slate-950">
+      <div className="fixed inset-0 w-full h-full h-[100dvh] overflow-hidden select-none touch-none bg-slate-950">
         {/* 3D WebGL Canvas dengan Optimasi Tinggi untuk Mobile & Desktop */}
         <Canvas
           shadows={{ type: THREE.PCFSoftShadowMap }}
@@ -33,8 +33,9 @@ export default function App() {
             powerPreference: 'high-performance',
             antialias: true,
             stencil: false,
+            depth: true,
           }}
-          camera={{ position: [8, 4.5, 11], fov: 42, near: 0.5, far: 450 }}
+          camera={{ position: [7.5, 4.2, 10.5], fov: 42, near: 0.5, far: 380 }}
           className="w-full h-full"
         >
           <Suspense fallback={<CanvasLoader />}>

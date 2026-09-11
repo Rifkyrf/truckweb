@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useRef } from 'react';
 import * as THREE from 'three';
 
+export type CameraMode = 'chase' | 'orbit';
+export type MapMode = 'highway' | 'city';
+
 export interface TruckPhysics {
   position: THREE.Vector3;
   heading: number;
@@ -41,6 +44,16 @@ interface TruckContextType {
   // Simulator Mode
   autoDrive: boolean;
   toggleAutoDrive: () => void;
+
+  // 2 Mode Kamera: Orbit 360° vs Follow dari Belakang (Third Person Chase)
+  cameraMode: CameraMode;
+  setCameraMode: (mode: CameraMode) => void;
+  toggleCameraMode: () => void;
+
+  // Mode Peta Lingkungan: Jalan Tol (Highway) vs Jelajah Kota (City)
+  mapMode: MapMode;
+  setMapMode: (mode: MapMode) => void;
+  toggleMapMode: () => void;
 }
 
 const TruckContext = createContext<TruckContextType | null>(null);
@@ -58,6 +71,12 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
   const [truckPosition, setTruckPosition] = useState<[number, number, number]>([0, 0, 0]);
   const [truckHeading, setTruckHeading] = useState(0);
   const [autoDrive, setAutoDrive] = useState(false);
+
+  // 2 Mode Kamera: 'chase' (Follow dari Belakang) & 'orbit' (360 Bebas)
+  const [cameraMode, setCameraMode] = useState<CameraMode>('chase');
+
+  // Mode Peta Lingkungan: 'city' (Jelajah Kota) & 'highway' (Jalan Tol)
+  const [mapMode, setMapMode] = useState<MapMode>('city');
 
   // Mutable ref shared across useFrame loops
   const truckPhysicsRef = useRef<TruckPhysics>({
@@ -89,6 +108,30 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
     setAutoDrive((prev) => !prev);
   }, []);
 
+  const toggleCameraMode = useCallback(() => {
+    setCameraMode((prev) => (prev === 'chase' ? 'orbit' : 'chase'));
+  }, []);
+
+  const toggleMapMode = useCallback(() => {
+    setMapMode((prev) => {
+      const next = prev === 'highway' ? 'city' : 'highway';
+      // Reset posisi saat pindah map agar posisi truk bersih di awal jalan
+      truckPhysicsRef.current.position.set(0, 0, 0);
+      truckPhysicsRef.current.heading = 0;
+      truckPhysicsRef.current.speed = 0;
+      truckPhysicsRef.current.steering = 0;
+      truckPhysicsRef.current.resetId += 1;
+      setTruckPosition([0, 0, 0]);
+      setTruckHeading(0);
+      setSpeed(0);
+      setThrottleInput(0);
+      setCruiseSpeed(0);
+      setSteering(0);
+      setSteerInput(0);
+      return next;
+    });
+  }, []);
+
   return (
     <TruckContext.Provider
       value={{
@@ -116,6 +159,12 @@ export function TruckProvider({ children }: { children: React.ReactNode }) {
         truckPhysicsRef,
         autoDrive,
         toggleAutoDrive,
+        cameraMode,
+        setCameraMode,
+        toggleCameraMode,
+        mapMode,
+        setMapMode,
+        toggleMapMode,
       }}
     >
       {children}
